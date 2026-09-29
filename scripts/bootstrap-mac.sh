@@ -17,6 +17,8 @@ Environment overrides supported by child scripts:
   MZ_APP=/path/to/RPGMZ.app
   RMMZ_TEMPLATE_CACHE=/path/to/cache
   RMMZ_NWJS_BACKUP_ROOT=/path/to/backups
+  REACTOR_SOURCE=/path/to/RPGReactor
+      Install runtime and declarations from the same local checkout.
 
 Options:
   --skip-nwjs
@@ -105,7 +107,7 @@ fi
 # Reactor runtime
 # ------------------------------------------------------------
 
-step "2/7  Hydrate RPG Reactor runtime"
+step "2/7  Hydrate RPG Reactor runtime and declarations"
 
 "$SCRIPT_DIR/setup-reactor.sh" --install
 

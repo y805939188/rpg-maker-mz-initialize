@@ -4,7 +4,7 @@
 
 目标是保留 RPG Maker MZ 的地图、数据库、事件与 Plugin Command 编辑体验，同时把运行时切换到 RPG Reactor，并使用现代 TypeScript + Vite 工作流开发第一方插件。
 
-当前模板已经实际验证通过：
+下面是原始 `0.98.7` 模板的验证记录；新增类型安装流程见下一节。
 
 ```text
 GitHub fresh clone
@@ -21,7 +21,61 @@ GitHub fresh clone
 → PixiJS 8 native ParticleContainer 正常运行
 ```
 
-## 当前已锁定并验证的版本
+## 安装本地 RPGReactor 的 runtime 和类型
+
+第一次使用包含自定义声明的本地源码时执行：
+
+```bash
+REACTOR_SOURCE="/Users/dingshinn/Desktop/RPGReactor" ./scripts/bootstrap-mac.sh
+```
+
+已有项目只更新引擎和类型，无需重新安装 NW.js 或资源：
+
+```bash
+REACTOR_SOURCE="/Users/dingshinn/Desktop/RPGReactor" ./scripts/setup-reactor.sh --install
+pnpm --dir src typecheck
+pnpm --dir src build
+```
+
+安装成功后，源码路径保存在 Git 忽略的 `.reactor-source`。后续直接运行
+`./scripts/bootstrap-mac.sh` 或 `./scripts/setup-reactor.sh --install` 即可继续使用它。
+其他机器首次运行需指定自己的源码路径。本地模式读取该源码的 runtime 版本，
+不受下表远程下载版本约束；本次接入的是 `0.98.8 / 20260927.34`。
+
+安装映射如下：
+
+| RPGReactor 源码 | MZ 工程内的位置 |
+|---|---|
+| `runtime/reactor_*.js`、`runtime/libs/` | `js/reactor_*.js`、`js/libs/` |
+| `types/*.d.ts`、`types/compat/` | `src/vendor/rpgreactor/types/` |
+| `types/tools/typecheck.cjs` | `src/vendor/rpgreactor/types/tools/typecheck.cjs` |
+
+源码需要包含本次为 `typecheck.cjs` 增加的 `--compiler-root` 参数支持。
+安装只同步声明、兼容工具和许可证，不复制上游测试、示例或机器生成的 DOM 文件。
+`src/vendor/rpgreactor/` 不进 Git，由安装脚本维护；自己的类型扩展放在 `src/types/`。
+安装检查包含声明文件的 SHA-256，即使 runtime 版本未变，声明更新或丢失也会重新同步。
+
+`pnpm --dir src typecheck` 先用项目安装的 TypeScript 7.0.2 生成 DOM 兼容声明，
+再检查插件及 Vite 配置。游戏类型配置使用上游 WebGPU 适配和 `skipLibCheck: false`；
+Vite 的 Node 环境由 `src/tsconfig.tools.json` 单独检查。
+原来的 `src/types/mz.d.ts` 已由引擎声明替代，PIXI 全局和 NW.js 补充声明仍保留。
+这些文件只参与开发检查，不会作为 JS 加载进游戏。
+
+原来的远程快照没有你本地新增的 `types/`，因此尚不能支持带类型的全新安装。
+若要让别人通过下载模式一键初始化，先将声明及工具发布到自己的 fork，
+再更新 `scripts/versions.env` 的仓库、commit、版本和 revision，最后运行：
+
+```bash
+REACTOR_SOURCE=download ./scripts/bootstrap-mac.sh
+```
+
+缺少声明的源码会在修改游戏 runtime 之前报错。RPGReactor 编辑器菜单中的
+`Install Reactor Runtime...` 是另一条安装路径，本次没有修改该菜单；此模板直接由
+`scripts/setup-reactor.sh` 同步源码。
+
+安装流程回归测试：`node --test scripts/tests/reactor-install.test.cjs`。
+
+## 远程下载模式锁定的版本
 
 | 组件 | 版本 |
 |---|---|
@@ -408,7 +462,9 @@ Source map 已实际验证，DevTools 日志可以定位回 `.ts` 源文件。
 │   ├── tsconfig.json
 │   ├── vite.config.mts
 │   ├── plugins/
-│   └── types/
+│   ├── types/                # 项目自身的补充声明
+│   ├── vendor/rpgreactor/    # 安装的引擎类型，不进 Git
+│   └── tsconfig.tools.json  # Vite / Node 类型环境
 └── scripts/
     ├── bootstrap-mac.sh
     ├── doctor.sh

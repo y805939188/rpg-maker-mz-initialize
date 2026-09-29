@@ -8,12 +8,12 @@
     "noEmit": true,
 
     "lib": [
-      "ES2022",
-      "DOM"
+      "ES2022"
     ],
 
     "types": [],
-    "skipLibCheck": true,
+    "skipLibCheck": false,
+    "typeRoots": ["./vendor/rpgreactor/types/compat"],
 
     "allowJs": false,
     "checkJs": false,
@@ -26,8 +26,12 @@
   "include": [
     "plugins/**/*.ts",
     "types/**/*.d.ts",
-    "typecheck-runtime.ts",
-    "vite.config.mts"
+    "typecheck-runtime.ts"
+  ],
+
+  "files": [
+    "vendor/rpgreactor/types/globals.d.ts",
+    "vendor/rpgreactor/types/compat/lib.dom.generated.d.ts"
   ],
 
   "exclude": [

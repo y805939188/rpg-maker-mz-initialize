@@ -139,28 +139,16 @@ REACTOR_MAIN="$ROOT/js/reactor_main.js"
 if [[ -f "$REACTOR_MAIN" ]]; then
   pass "RPG Reactor runtime is hydrated"
 
-  RUNTIME_VERSION="$(
-    grep -m1 'RPG Reactor runtime version:' "$REACTOR_MAIN" \
-      | sed -E 's/.*version:[[:space:]]*([^[:space:]*]+).*/\1/' \
-      || true
-  )"
-
-  RUNTIME_REVISION="$(
-    grep -m1 'RPG Reactor runtime revision:' "$REACTOR_MAIN" \
-      | sed -E 's/.*revision:[[:space:]]*([^[:space:]*]+).*/\1/' \
-      || true
-  )"
-
-  if [[ "$RUNTIME_VERSION" == "$REACTOR_VERSION" ]]; then
-    pass "Reactor runtime version $RUNTIME_VERSION"
+  if "$SCRIPT_DIR/setup-reactor.sh" --check; then
+    pass "Reactor runtime and declarations match the selected source"
   else
-    warn "Reactor runtime version '$RUNTIME_VERSION' (expected $REACTOR_VERSION)"
+    fail "Reactor installation incomplete or stale; run: ./scripts/setup-reactor.sh --install"
   fi
 
-  if [[ "$RUNTIME_REVISION" == "$REACTOR_RUNTIME_REVISION" ]]; then
-    pass "Reactor runtime revision $RUNTIME_REVISION"
+  if [[ -f "$ROOT/src/vendor/rpgreactor/types/compat/lib.dom.generated.d.ts" ]]; then
+    pass "Reactor DOM declarations prepared"
   else
-    warn "Reactor runtime revision '$RUNTIME_REVISION' (expected $REACTOR_RUNTIME_REVISION)"
+    warn "DOM declarations missing; run: pnpm --dir src types:prepare"
   fi
 else
   warn "RPG Reactor runtime not hydrated (expected after clone, before setup)"

@@ -16,6 +16,8 @@ rpgmaker-runtime-backup.zip
 # ------------------------------------------------------------
 src/node_modules/
 src/.vite/
+src/vendor/rpgreactor/
+.reactor-source
 
 # ------------------------------------------------------------
 # Hydrated game runtime

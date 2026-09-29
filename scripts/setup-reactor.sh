@@ -23,6 +23,15 @@ REACTOR_MANIFEST="$ROOT/js/reactor_plugins.js"
 MZ_MANIFEST="$ROOT/js/plugins.js"
 INDEX_HTML="$ROOT/index.html"
 
+# An explicit environment value wins; "download" selects the pinned snapshot.
+SOURCE_CONFIG="$ROOT/.reactor-source"
+LOCAL_SOURCE="${REACTOR_SOURCE:-}"
+if [[ -z "$LOCAL_SOURCE" && -f "$SOURCE_CONFIG" ]]; then
+  LOCAL_SOURCE="$(cat "$SOURCE_CONFIG")"
+fi
+[[ "$LOCAL_SOURCE" != "download" ]] || LOCAL_SOURCE=""
+TYPES_DEST="$ROOT/src/vendor/rpgreactor"
+
 MODE="install"
 FORCE=0
 
@@ -35,6 +44,10 @@ Usage:
 
 Environment:
   RMMZ_TEMPLATE_CACHE=/path/to/cache
+  REACTOR_SOURCE=/path/to/RPGReactor
+      Install runtime + declarations from this checkout; remember it locally.
+  REACTOR_SOURCE=download
+      Use the commit in versions.env (must contain the declaration bundle).
 USAGE
 }
 
@@ -114,7 +127,7 @@ index_uses_reactor() {
   grep -q 'js/reactor_main\.js' "$INDEX_HTML"
 }
 
-is_expected_install() {
+runtime_is_expected() {
   [[ -f "$REACTOR_MAIN" ]] || return 1
 
   [[ "$(current_runtime_version)" == "$REACTOR_VERSION" ]] || return 1
@@ -127,6 +140,32 @@ is_expected_install() {
   [[ -f "$ROOT/js/libs/pixi_compat.js" ]] || return 1
 
   return 0
+}
+
+types_are_expected() {
+  source_matches || return 1
+  if [[ -n "$LOCAL_SOURCE" ]]; then
+    node "$SCRIPT_DIR/reactor-types.cjs" check "$TYPES_DEST" "$LOCAL_SOURCE"
+  else
+    node "$SCRIPT_DIR/reactor-types.cjs" check "$TYPES_DEST"
+  fi
+}
+
+source_matches() {
+  [[ -f "$TYPES_DEST/source.txt" ]] || return 1
+  [[ "$(cat "$TYPES_DEST/source.txt")" == "$SOURCE_ID" ]]
+}
+
+is_expected_install() {
+  runtime_is_expected && types_are_expected
+}
+
+save_source_selection() {
+  if [[ -n "$LOCAL_SOURCE" ]]; then
+    printf '%s\n' "$LOCAL_SOURCE" > "$SOURCE_CONFIG"
+  else
+    rm -f "$SOURCE_CONFIG"
+  fi
 }
 
 print_current_state() {
@@ -216,12 +255,37 @@ write_reactor_index() {
 HTML
 }
 
+if [[ -n "$LOCAL_SOURCE" ]]; then
+  if [[ ! -f "$LOCAL_SOURCE/runtime/reactor_main.js" ]]; then
+    echo "ERROR: Invalid local Reactor source: $LOCAL_SOURCE" >&2
+    exit 1
+  fi
+  LOCAL_SOURCE="$(cd "$LOCAL_SOURCE" && pwd)"
+  SOURCE_ROOT="$LOCAL_SOURCE"
+  REACTOR_VERSION="$(runtime_version_for_file "$SOURCE_ROOT/runtime/reactor_main.js")"
+  REACTOR_RUNTIME_REVISION="$(runtime_revision_for_file "$SOURCE_ROOT/runtime/reactor_main.js")"
+  if [[ -z "$REACTOR_VERSION" || -z "$REACTOR_RUNTIME_REVISION" ]]; then
+    echo "ERROR: Local runtime has no version/revision stamp." >&2
+    exit 1
+  fi
+fi
+
+if [[ -n "$LOCAL_SOURCE" ]]; then
+  SOURCE_ID="local:$LOCAL_SOURCE"
+else
+  SOURCE_ID="github:$REACTOR_REPO@$REACTOR_COMMIT"
+fi
+
 echo
 echo "RPG Reactor runtime setup"
 echo "Project:          $ROOT"
-echo "Repository:       $REACTOR_REPO"
-echo "Pinned version:   $REACTOR_VERSION"
-echo "Pinned commit:    $REACTOR_COMMIT"
+if [[ -n "$LOCAL_SOURCE" ]]; then
+  echo "Local source:     $LOCAL_SOURCE"
+else
+  echo "Repository:       $REACTOR_REPO"
+  echo "Pinned commit:    $REACTOR_COMMIT"
+fi
+echo "Expected version: $REACTOR_VERSION"
 echo "Runtime revision: $REACTOR_RUNTIME_REVISION"
 echo
 
@@ -234,11 +298,11 @@ if [[ "$MODE" == "check" ]]; then
   echo
 
   if is_expected_install; then
-    echo "PASS: Reactor runtime matches the pinned template runtime."
+    echo "PASS: Reactor runtime and declarations match the selected source."
     exit 0
   fi
 
-  echo "FAIL: Reactor runtime does not match the pinned template runtime."
+  echo "FAIL: Reactor runtime or declarations do not match the selected source."
   exit 1
 fi
 
@@ -246,21 +310,22 @@ fi
 # Idempotent install
 # ------------------------------------------------------------
 
-if is_expected_install && [[ "$FORCE" -eq 0 ]]; then
+if is_expected_install >/dev/null 2>&1 && [[ "$FORCE" -eq 0 ]]; then
   print_current_state
   echo
   echo "Already installed. Nothing to do."
+  save_source_selection
   exit 0
 fi
 
-for command in tar grep sed; do
+for command in node tar grep sed; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "ERROR: Required command not found: $command" >&2
     exit 1
   fi
 done
 
-if ! command -v aria2c >/dev/null 2>&1 \
+if [[ -z "$LOCAL_SOURCE" ]] && ! command -v aria2c >/dev/null 2>&1 \
    && ! command -v curl >/dev/null 2>&1; then
   echo "ERROR: Neither aria2c nor curl is installed." >&2
   exit 1
@@ -276,6 +341,7 @@ if [[ ! -f "$MZ_MANIFEST" ]]; then
   exit 1
 fi
 
+if [[ -z "$LOCAL_SOURCE" ]]; then
 mkdir -p "$CACHE_ROOT"
 
 # ------------------------------------------------------------
@@ -322,11 +388,13 @@ tar \
   -C "$SOURCE_ROOT" \
   --strip-components=1
 
+fi
+
 RUNTIME_SOURCE="$SOURCE_ROOT/runtime"
 SOURCE_MAIN="$RUNTIME_SOURCE/reactor_main.js"
 
 if [[ ! -f "$SOURCE_MAIN" ]]; then
-  echo "ERROR: Downloaded source does not contain runtime/reactor_main.js." >&2
+  echo "ERROR: Selected source does not contain runtime/reactor_main.js." >&2
   exit 1
 fi
 
@@ -334,25 +402,29 @@ SOURCE_VERSION="$(runtime_version_for_file "$SOURCE_MAIN")"
 SOURCE_REVISION="$(runtime_revision_for_file "$SOURCE_MAIN")"
 
 if [[ "$SOURCE_VERSION" != "$REACTOR_VERSION" ]]; then
-  echo "ERROR: Downloaded Reactor version '$SOURCE_VERSION'." >&2
+  echo "ERROR: Selected Reactor version '$SOURCE_VERSION'." >&2
   echo "Expected '$REACTOR_VERSION'." >&2
   exit 1
 fi
 
 if [[ "$SOURCE_REVISION" != "$REACTOR_RUNTIME_REVISION" ]]; then
-  echo "ERROR: Downloaded Reactor revision '$SOURCE_REVISION'." >&2
+  echo "ERROR: Selected Reactor revision '$SOURCE_REVISION'." >&2
   echo "Expected '$REACTOR_RUNTIME_REVISION'." >&2
   exit 1
 fi
 
 if [[ ! -f "$RUNTIME_SOURCE/libs/pixi.js" ]]; then
-  echo "ERROR: Downloaded Reactor runtime is missing libs/pixi.js." >&2
+  echo "ERROR: Selected Reactor runtime is missing libs/pixi.js." >&2
   exit 1
 fi
 
-echo "Downloaded runtime verified:"
+echo "Selected runtime verified:"
 echo "  version:  $SOURCE_VERSION"
 echo "  revision: $SOURCE_REVISION"
+
+# Validate types BEFORE changing any game runtime files. Old remote snapshots
+# without the custom types must fail instead of leaving a half-working TS setup.
+node "$SCRIPT_DIR/reactor-types.cjs" validate "$TYPES_DEST" "$SOURCE_ROOT"
 
 # ------------------------------------------------------------
 # Reject unexpected stock corescript
@@ -377,6 +449,7 @@ fi
 # Install / refresh vendor runtime
 # ------------------------------------------------------------
 
+if ! runtime_is_expected || ! source_matches || [[ "$FORCE" -eq 1 ]]; then
 echo
 echo "Installing Reactor runtime..."
 
@@ -416,6 +489,13 @@ ln -s "plugins.js" "$REACTOR_MANIFEST"
 
 write_reactor_index
 
+else
+  echo "Runtime already matches; refreshing declarations only."
+fi
+
+node "$SCRIPT_DIR/reactor-types.cjs" sync "$TYPES_DEST" "$SOURCE_ROOT"
+printf '%s\n' "$SOURCE_ID" > "$TYPES_DEST/source.txt"
+
 # ------------------------------------------------------------
 # Verify
 # ------------------------------------------------------------
@@ -430,6 +510,9 @@ if ! is_expected_install; then
 fi
 
 print_current_state
+
+# Save only successful source selections. The file is local and Git-ignored.
+save_source_selection
 
 echo
 echo "PASS: RPG Reactor $REACTOR_VERSION is ready."

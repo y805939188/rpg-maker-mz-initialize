@@ -47,6 +47,11 @@ interface DemoState {
   function start(rawCount: string | number | undefined): void {
     stop();
 
+    const app = Graphics.app;
+    if (!app) {
+      throw new Error("Graphics.app is not initialized.");
+    }
+
     if (typeof RPG_REACTOR_RUNTIME_REVISION === "undefined") {
       throw new Error(
         "This demo requires the RPG Reactor runtime.",
@@ -173,7 +178,7 @@ interface DemoState {
       }
     };
 
-    Graphics.app.ticker.add(tick);
+    app.ticker.add(tick);
 
     state = {
       layer,
